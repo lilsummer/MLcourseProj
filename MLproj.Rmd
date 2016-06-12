@@ -1,0 +1,106 @@
+---
+title: "Practical machine learning course project"
+author: "lilsummer"
+date: "June 11, 2016"
+output: html_document
+---
+
+## Summary
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+### Loading and cleaning data
+```{r}
+library(caret); library(cvTools)
+training = read.csv(file = 'pml-training.csv', header = TRUE, sep = ",")
+testing = read.csv(file = 'pml-testing.csv', header = TRUE, sep = ",")
+dim(training)
+dim(testing)
+##calculate the NA's in each variables
+number.NA = rep(0, dim(training)[2])
+
+for (i in 1:dim(training)[2]) {
+    number.NA[i] = sum(is.na(training[, i]))
+}
+number.NA
+
+##we will not use NA = 601 variables for prediction
+good.var = which(number.NA == 0)
+good.training = training[, good.var]
+dim(good.training)
+
+##
+#summary(good.training)
+
+```
+
+###Classification tree and K-fold cross validation
+```{r, cache=TRUE}
+###do a simple pairs plo
+
+kurto = which(substr(names(good.training), 1, 8) == 'kurtosis')
+ske = which(substr(names(good.training), 1, 4) == 'skew')
+maxi = which(substr(names(good.training), 1, 3) == 'max')
+mini = which(substr(names(good.training), 1, 3) == 'min')
+amp = which(substr(names(good.training), 1, 9) == 'amplitude')
+bad = c(kurto, ske, maxi, mini, amp, 1:7)
+good.training2 = good.training[, -bad]
+#attach(good.training2)
+#a = sample(dim(good.training)[1], 800)
+#a = good.training[a,]
+#pairs(classe~roll_arm + roll_belt + roll_dumbbell + roll_forearm, data = a)
+#pairs(classe~pitch_arm + pitch_belt + pitch_forearm + pitch_dumbbell, data = a)
+
+
+
+mod1 = lm(classe~., data = a)
+mod2 = lm(classe~., data = good.training2)
+####
+sort(mod2$coefficients, decreasing = TRUE)[1:11]
+
+nzv <- nearZeroVar(good.training2, saveMetrics= TRUE)
+
+# good.training3 = data.frame(classe = good.training2$classe, 
+#                             gyros_belt_x = good.training2$gyros_belt_x,
+#                             gyros_dumbbell_x = good.training2$gyros_dumbbell_x,
+#                             gyros_belt_z = good.training2$gyros_belt_z,
+#                             gyros_dumbbell_y = good.training2$gyros_dumbbell_y,
+#                             gyros_arm_y = good.training2$gyros_arm_y,
+#                             gyros_arm_x = good.training2$gyros_arm_x,
+#                             gyros_dumbbell_z = good.training2$gyros_dumbbell_z,
+#                             total_accel_belt = good.training2$total_accel_belt,
+#                             total_accel_dumbbell = good.training2$total_accel_dumbbell,
+#                             pitch_belt = good.training2$pitch_belt
+#                             )
+
+good.training3 = good.training2
+
+####
+set.seed(199)
+#fld <- createFolds(good.training2$classe, k = 5, returnTrain = TRUE)
+dim(good.training2)[1]*0.3/dim(good.training3)[1]
+fld <- cvFolds(dim(good.training3)[1], K = 3, type = "random")
+
+testing.1 = good.training3[which(fld$which == 1), ]
+training.1 = good.training3[-which(fld$which == 1), ]
+testing.2 = good.training3[which(fld$which == 2), ]
+training.2 = good.training3[-which(fld$which == 2), ]
+testing.3 = good.training3[which(fld$which == 3), ]
+training.3 = good.training3[-which(fld$which == 3), ]
+
+rpart.grid <- expand.grid(.cp=0.009) 
+fit1 <- train(classe~., data = training.1, method = "rpart", tuneGrid=rpart.grid )
+
+plot(fit1$finalModel, uniform = TRUE, main = "classification Tree")
+text(fit1$finalModel, use.n = TRUE, all = TRUE, cex = .8)
+
+pred1 <- predict(fit1, data = testing.1, type = "raw")
+table(pred1[1:length(testing.1$classe)], testing.1$classe)
+fit1$results
+####gbm:boosting
+fit2 <- train(classe~., data = )
+
+
+
+
+```
+
