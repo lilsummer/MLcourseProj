@@ -1,0 +1,170 @@
+---
+title: 'Practical machine learning final project -- using personal activity data to
+  predict the quality of the exercise '
+author: "X Guo"
+date: "June 12, 2016"
+output: pdf_document
+---
+
+## Summary
+This report is the final course project of Practical Machine Learning by JHU. The data source can be found [here] (http://groupware.les.inf.puc-rio.br/har). The dataset were collected from from 6 adults who were performing unilateral dumbbell biceps curl. The measurement includes the data detected from arm, belt, dumbell and forearm. The goal is to make prediction on how well they perfomed the exercise. This was classified as 'classe' in the dataset. The report will be focusing on building machine learning model, performing cross validation, selecting the robust model and making prediction.
+
+* Classfication tree with cross validation
+* Boosting with cross validation
+* Model evaluation
+* Prediction
+
+### Results
+
+* In this report we've build 3 model; 2 were classification tree models; 1 was the boosting models.
+* In each model we've applied 6-fold cross validation.
+* The boosting model we created is evaluated as the best model.
+* Prediction was made on the final boosting model. 
+* The out of sample error estimation is 0.23%.
+
+##Loading and cleaning data
+
+We first load and clean the data. We have select several variables in our training set. The selection criteria of predictor variables are:
+
+1. Number of NA is zero
+2. Non-zero variance variables
+
+```{r, results='hide'}
+library(caret); library(cvTools)
+training = read.csv(file = 'pml-training.csv', header = TRUE, sep = ",")
+testing = read.csv(file = 'pml-testing.csv', header = TRUE, sep = ",")
+dim(training)
+dim(testing)
+##calculate the NA's in each variables
+number.NA = rep(0, dim(training)[2])
+
+for (i in 1:dim(training)[2]) {
+    number.NA[i] = sum(is.na(training[, i]))
+}
+number.NA
+
+##we will not use NA = 601 variables for prediction
+good.var = which(number.NA == 0)
+good.training = training[, good.var]
+dim(good.training)
+kurto = which(substr(names(good.training), 1, 8) == 'kurtosis')
+ske = which(substr(names(good.training), 1, 4) == 'skew')
+maxi = which(substr(names(good.training), 1, 3) == 'max')
+mini = which(substr(names(good.training), 1, 3) == 'min')
+amp = which(substr(names(good.training), 1, 9) == 'amplitude')
+bad = c(kurto, ske, maxi, mini, amp, 1:7)
+good.training2 = good.training[, -bad]
+```
+
+
+good.training2 contains the cleaned data we are going to work on. We can use nzv() to varify the variables.
+
+
+```{r, cache=TRUE}
+nearZeroVar(good.training2, saveMetrics= TRUE)
+```
+
+## Classification tree: rpart.cv
+
+Here we use 'rpart' and 'rpart2' methods to train the models. 
+
+* Cross validation is done by 'cv' method in the trainControl; we choose 6-fold cross validation. 
+
+
+```{r, eval=FALSE}
+
+set.seed(999)
+trCtrl <- trainControl(method = 'cv', number = 6, summaryFunction=defaultSummary)
+Grid <- expand.grid(cp = seq(0, 0.05, 0.005))
+fit.cp <- train(classe~., data = good.training2, method = 'rpart', trControl = trCtrl,tuneGrid = Grid)
+plot(fit.cp)
+#plot(varImp(fit.cp))
+
+###
+ 
+set.seed(999) 
+Grid2 <- expand.grid(.maxdepth = seq(10, 30, 5)) 
+fit.rpart2 <- train(classe~., data = good.training2, method = 'rpart2', trControl = trCtrl,  tuneGrid = Grid2)
+plot(fit.rpart2)
+#plot(varImp(fit.rpart2))
+
+```
+
+<img src="/Users/LilSummer/Desktop/MLproj/fig1.png" />
+
+Here we see that the best complexity paramter is 0.00 for the first rpart model.
+
+
+<img src="/Users/LilSummer/Desktop/MLproj/fig2.png" />
+
+
+Here we see that the optimal tree depth is about 30 for the rpart2 model.
+
+
+## Boosting: gbm and cross validation
+
+We use gbm method to build the boosting model.
+
+* We set the parameter of cross validation to 6-fold.
+* We set the maximum iteration to 100. 
+
+
+```{r,  eval=FALSE}
+set.seed(888)
+trCtl <- trainControl(method = 'cv', number = 6, summaryFunction=defaultSummary)
+Grid <- expand.grid( n.trees = seq(5, 100, 3), interaction.depth = c(10), shrinkage = c(0.1), n.minobsinnode = 20)
+fit.gbm <- train(classe~., data = good.training2, method = 'gbm', trControl = trCtl, tuneGrid = Grid)
+plot(fit.gbm)
+#plot(varImp(fit.gbm))
+
+```
+
+<img src="/Users/LilSummer/Desktop/MLproj/fig3.png" />
+
+We find that the accuracy has reached to a pleatau as the iteration increases to 100.
+
+
+## Model evaluation
+```{r, eval=FALSE}
+compare = resamples(list(rtree1 = fit.cp, rtree2 = fit.rpart2, boost = fit.gbm))
+bwplot(compare)
+```
+
+<img src="/Users/LilSummer/Desktop/MLproj/fig4.png" />
+
+The figure shows that boost model has the best accuracy compared with other two tree models. 
+
+## Prediction
+
+Based on the comparison, we choose the boosting model (with 98 iterations, 10 interaction depth, 0.1 shrinkage and 20 minimal number of observation) as our final model. 
+
+* We use 6-fold cross validation to get several test sets from the original training dataset.
+* CV samples generated by createFolds() are used for evaluation the out of sample error
+
+```{r, eval=FALSE}
+pred1 <- predict(fit.gbm, testing, n.trees = 98)
+pred1
+
+set.seed(888)
+
+
+fld = createFolds(good.training2$classe, k = 6)
+Est.error = rep(0, 6)
+##outOfSampleError.accuracy <- sum(predictions == testValidateData$classe)/length(predictions)
+for (k in 1:6) {
+    test = good.training2[unlist(fld[k]), ]
+    a.pred = predict(fit.gbm, n.trees = 98, test)
+    accur = sum(as.numeric(a.pred) == as.numeric(test$classe))/length(a.pred)
+    error = 1 - accur
+    Est.error[k] = error
+}
+Estimation = mean(Est.error)*100
+paste0("Out of sample error estimation: ", round(Estimation, digits = 2), "%")
+
+```
+
+```{r, eval=TRUE, echo=FALSE}
+paste("Result:",  c('B A B A A E D B A A B C B A E E A B B B'))
+paste0("Out of sample error estimation: ", 0.23, "%")
+
+```
